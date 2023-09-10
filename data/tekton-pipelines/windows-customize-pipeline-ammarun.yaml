@@ -10,11 +10,11 @@ spec:
     - name: customizeConfigMapName
       description: Name of the ConfigMap containing the customization and sysprep configuration files (unattend.xml, etc.). For example windows10-sqlserver or windows11-vs-code. It is possible to provide customize ConfigMaps created by the user too.
       type: string
-      default: windows-vs-code
-    - name: customizeConfigMapNameInstall
-      description: Name of the ConfigMap containing the customization and sysprep configuration files (unattend.xml, etc.). For example windows10-sqlserver or windows11-vs-code. It is possible to provide customize ConfigMaps created by the user too.
+      default: windows-unattend-customize
+    - name: sourceDiskImageName
+      description: Name of the windows source disk which will be copied and modified with sysprep
       type: string
-      default: windows10-bios-autounattend
+      default: win10
     - name: baseDvName
       description: Name of the result windows disk
       type: string
@@ -37,42 +37,18 @@ spec:
                   - ReadWriteOnce
                 resources:
                   requests:
-                    storage: 6Gi
+                    storage: 26Gi
                 volumeMode: Filesystem
-              source:
-                http:
-                  url: http://185.181.211.5/ISO/Windows_10_PRO_21H2_ENU.iso
+              source: 
+                pvc:
+                  name: $(params.sourceDiskImageName)
+                  namespace: default
         - name: waitForSuccess
           value: true
         - name: allowReplace
           value: true
-    - name: create-base-dv
-      params:
-        - name: manifest
-          value: |
-            apiVersion: cdi.kubevirt.io/v1beta1
-            kind: DataVolume
-            metadata:
-              generateName: windows-10-base-
-            spec:
-              pvc:
-                accessModes:
-                  - ReadWriteOnce
-                resources:
-                  requests:
-                    storage: 10Gi
-                volumeMode: Filesystem
-              source:
-                blank: {}
-        - name: waitForSuccess
-          value: 'true'
-      taskRef:
-        kind: Task
-        name: modify-data-object
     - name: create-vm
       params:
-        - name: runStrategy
-          value: RerunOnFailure
         - name: manifest
           value: |-          
             apiVersion: kubevirt.io/v1
@@ -80,69 +56,46 @@ spec:
             metadata:
               generateName: windows-customize-
             spec:
-              runStrategy: RerunOnFailure
+              running: true
               template:
                 metadata:
                   labels:
-                    kubevirt.io/domain: windows-installer
+                    kubevirt.io/domain: windows-customized
                 spec:
                   domain:
                     cpu:
                       sockets: 1
-                      cores: 2
+                      cores: 4
                       threads: 1
                     resources:
                       requests:
-                        memory: 2Gi
+                        memory: 6Gi
                     devices:
                       disks:
-                        - name: installcdrom
-                          cdrom:
-                            bus: sata
-                          bootOrder: 1
-                        - name: rootdisk
-                          bootOrder: 2
-                          disk:
+                        - disk:
                             bus: virtio
-                        - name: virtiocontainerdisk
-                          cdrom:
+                          name: rootdisk
+                          bootOrder: 1
+                        - cdrom:
                             bus: sata
-                        - name: sysprepInstall
-                          cdrom:
-                            bus: sata
-                        - name: sysprep
-                          cdrom:
-                            bus: sata
+                          name: sysprep
                   volumes:
-                  - name: sysprepInstall
-                    sysprep:
-                      configMap: 
-                        name: $(params.customizeConfigMapNameInstall)
                   - name: sysprep
                     sysprep:
                       configMap: 
                         name: $(params.customizeConfigMapName)
-                  - name: virtiocontainerdisk
-                    containerDisk:
-                      image: kubevirt/virtio-container-disk
-                  - dataVolume:
-                      name:  $(tasks.create-base-dv.results.name)
-                    name: rootdisk
                   - dataVolume:
                       name:  $(tasks.copy-vm-root-disk.results.name)
-                    name: installcdrom
+                    name: rootdisk
       taskRef:
         kind: Task
         name: create-vm-from-manifest
       runAfter:
         - copy-vm-root-disk
-        - create-base-dv
     - name: wait-for-vmi-status
       params:
         - name: vmiName
           value: $(tasks.create-vm.results.name)
-        - name: vmiNamespace
-          value: $(tasks.create-vm.results.namespace)
         - name: successCondition
           value: status.phase == Succeeded
         - name: failureCondition
@@ -158,8 +111,6 @@ spec:
       params:
         - name: vmName
           value: $(tasks.create-vm.results.name)
-        - name: vmNamespace
-          value: $(tasks.create-vm.results.namespace)
         - name: delete
           value: true
       timeout: 10m
