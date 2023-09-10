@@ -3,8 +3,8 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: windows-sqlserver
-  annotations:
-    "kubevirt.io/deploy-namespace": "kubevirt-os-images"
+  # annotations:
+  #   "kubevirt.io/deploy-namespace": "kubevirt-os-images"
 data:
   unattend.xml: |
     <?xml version="1.0" encoding="utf-8"?>
@@ -62,8 +62,8 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: windows-vs-code
-  annotations:
-    "kubevirt.io/deploy-namespace": "kubevirt-os-images"
+  # annotations:
+    # "kubevirt.io/deploy-namespace": "kubevirt-os-images"
 data:
   unattend.xml: |
     <?xml version="1.0" encoding="utf-8"?>
@@ -121,8 +121,8 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: windows10-unattend
-  annotations:
-    "kubevirt.io/deploy-namespace": "kubevirt-os-images"
+  # annotations:
+    # "kubevirt.io/deploy-namespace": "kubevirt-os-images"
 data:
   unattend.xml: |
     <?xml version="1.0" encoding="utf-8"?>
@@ -193,9 +193,9 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: windows11-unattend
-  annotations:
-    "kubevirt.io/deploy-namespace": "kubevirt-os-images"
+  name: windows10-unattend
+  # annotations:
+    # "kubevirt.io/deploy-namespace": "kubevirt-os-images"
 data:
   unattend.xml: |
     <?xml version="1.0" encoding="utf-8"?>

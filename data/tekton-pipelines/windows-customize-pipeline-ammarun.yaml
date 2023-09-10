@@ -7,42 +7,18 @@ metadata:
     description: windows-customize pipeline provides functionality for windows VMs to e.g. install sql server, or install VS Code into windows VM. This pipeline can be reused for customizing Windows 10 and 11.
 spec:
   params:
-    - name: instanceTypeName
-      type: string
-      description: Name of VirtualMachineClusterInstancetype object
-      default: u1.large
-    - name: instanceTypeKind
-      type: string
-      description: Kind of VirtualMachineInstancetype object
-      default: VirtualMachineClusterInstancetype
-    - name: preferenceName
-      type: string
-      description: Name of VirtualMachineClusterPreference object
-      default: windows.11
-    - name: virtualMachinePreferenceKind
-      type: string
-      description: Kind of virtualMachinePreference object
-      default: VirtualMachineClusterPreference
     - name: customizeConfigMapName
       description: Name of the ConfigMap containing the customization and sysprep configuration files (unattend.xml, etc.). For example windows10-sqlserver or windows11-vs-code. It is possible to provide customize ConfigMaps created by the user too.
       type: string
       default: windows-vs-code
-    - name: sourceDiskImageName
-      description: Name of the windows source disk which will be copied and modified with sysprep
+    - name: customizeConfigMapNameInstall
+      description: Name of the ConfigMap containing the customization and sysprep configuration files (unattend.xml, etc.). For example windows10-sqlserver or windows11-vs-code. It is possible to provide customize ConfigMaps created by the user too.
       type: string
-      default: win11
-    - name: sourceDiskImageNamespace
-      description: Namespace of the windows source disk which will be copied and modified with sysprep
-      type: string
-      default: kubevirt-os-images
+      default: windows10-bios-autounattend
     - name: baseDvName
       description: Name of the result windows disk
       type: string
-      default: win11-customized
-    - name: baseDvNamespace
-      description: Namespace of the result windows disk
-      type: string
-      default: kubevirt-os-images
+      default: win10-customized
   tasks:
     - name: copy-vm-root-disk
       taskRef:
@@ -54,20 +30,45 @@ spec:
             apiVersion: cdi.kubevirt.io/v1beta1
             kind: DataVolume
             metadata:
-              annotations:
-                "cdi.kubevirt.io/storage.bind.immediate.requested": "true"
               name: $(params.baseDvName)
-              namespace: $(params.baseDvNamespace)
             spec:
-              storage: {}
-              source: 
-                pvc:
-                  name: $(params.sourceDiskImageName)
-                  namespace: $(params.sourceDiskImageNamespace)
+              pvc:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 6Gi
+                volumeMode: Filesystem
+              source:
+                http:
+                  url: http://185.181.211.5/ISO/Windows_10_PRO_21H2_ENU.iso
         - name: waitForSuccess
           value: true
         - name: allowReplace
           value: true
+    - name: create-base-dv
+      params:
+        - name: manifest
+          value: |
+            apiVersion: cdi.kubevirt.io/v1beta1
+            kind: DataVolume
+            metadata:
+              generateName: windows-10-base-
+            spec:
+              pvc:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 10Gi
+                volumeMode: Filesystem
+              source:
+                blank: {}
+        - name: waitForSuccess
+          value: 'true'
+      taskRef:
+        kind: Task
+        name: modify-data-object
     - name: create-vm
       params:
         - name: runStrategy
@@ -78,39 +79,64 @@ spec:
             kind: VirtualMachine
             metadata:
               generateName: windows-customize-
-              namespace: $(params.baseDvNamespace)
             spec:
-              instancetype:
-                kind: $(params.instanceTypeKind)
-                name: $(params.instanceTypeName)
-              preference:
-                kind: $(params.virtualMachinePreferenceKind)
-                name: $(params.preferenceName)
+              runStrategy: RerunOnFailure
               template:
+                metadata:
+                  labels:
+                    kubevirt.io/domain: windows-installer
                 spec:
                   domain:
+                    cpu:
+                      sockets: 1
+                      cores: 2
+                      threads: 1
+                    resources:
+                      requests:
+                        memory: 2Gi
                     devices:
                       disks:
-                        - disk:
-                            bus: virtio
-                          name: rootdisk
-                          bootOrder: 1
-                        - cdrom:
+                        - name: installcdrom
+                          cdrom:
                             bus: sata
-                          name: sysprep
+                          bootOrder: 1
+                        - name: rootdisk
+                          bootOrder: 2
+                          disk:
+                            bus: virtio
+                        - name: virtiocontainerdisk
+                          cdrom:
+                            bus: sata
+                        - name: sysprepInstall
+                          cdrom:
+                            bus: sata
+                        - name: sysprep
+                          cdrom:
+                            bus: sata
                   volumes:
+                  - name: sysprepInstall
+                    sysprep:
+                      configMap: 
+                        name: $(params.customizeConfigMapNameInstall)
                   - name: sysprep
                     sysprep:
                       configMap: 
                         name: $(params.customizeConfigMapName)
+                  - name: virtiocontainerdisk
+                    containerDisk:
+                      image: kubevirt/virtio-container-disk
+                  - dataVolume:
+                      name:  $(tasks.create-base-dv.results.name)
+                    name: rootdisk
                   - dataVolume:
                       name:  $(tasks.copy-vm-root-disk.results.name)
-                    name: rootdisk
+                    name: installcdrom
       taskRef:
         kind: Task
         name: create-vm-from-manifest
       runAfter:
         - copy-vm-root-disk
+        - create-base-dv
     - name: wait-for-vmi-status
       params:
         - name: vmiName
@@ -144,6 +170,3 @@ spec:
     - name: baseDvName
       description: Name of the created base DataVolume
       value: $(tasks.copy-vm-root-disk.results.name)
-    - name: baseDvNamespace
-      description: Namespace of the created base DataVolume
-      value: $(tasks.copy-vm-root-disk.results.namespace)

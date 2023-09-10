@@ -8,22 +8,6 @@ spec:
     - name: winImageDownloadURL
       description: Download URL to Windows installation ISO (English United States x64 version is needed). You can follow e.g. https://www.microsoft.com/en-us/software-download/windows10ISO to get windows 10 iso.
       type: string
-    - name: instanceTypeName
-      type: string
-      description: Name of VirtualMachineClusterInstancetype object
-      default: u1.large
-    - name: instanceTypeKind
-      type: string
-      description: Kind of VirtualMachineInstancetype object
-      default: VirtualMachineClusterInstancetype
-    - name: preferenceName
-      type: string
-      description: Name of VirtualMachineClusterPreference object
-      default: windows.10
-    - name: virtualMachinePreferenceKind
-      type: string
-      description: Kind of virtualMachinePreference object
-      default: VirtualMachineClusterPreference
     - name: autounattendConfigMapName
       description: Name of the ConfigMap containing the sysprep configuration files (autounattend.xml, etc.).
       type: string
@@ -40,11 +24,32 @@ spec:
       description: Name of the base DataVolume which is created. Pre-installed Windows VMs can be created from this DataVolume.
       type: string
       default: win10
-    - name: baseDvNamespace
-      description: Namespace of the base DataVolume which is created.
-      type: string
-      default: kubevirt-os-images
   tasks:
+    - name: create-source-dv
+      params:
+        - name: manifest
+          value: |
+            apiVersion: cdi.kubevirt.io/v1beta1
+            kind: DataVolume
+            metadata:
+              name: $(params.installCDRomName)
+            spec:
+              pvc:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 7Gi
+                volumeMode: Filesystem
+              source:
+                http:
+                  url: $(params.winImageDownloadURL)
+        - name: waitForSuccess
+          value: 'true'
+      timeout: '1h'
+      taskRef:
+        kind: Task
+        name: modify-data-object
     - name: create-vm-root-disk
       taskRef:
         kind: Task
@@ -55,15 +60,15 @@ spec:
             apiVersion: cdi.kubevirt.io/v1beta1
             kind: DataVolume
             metadata:
-              annotations:
-                "cdi.kubevirt.io/storage.bind.immediate.requested": "true"
               name: $(params.baseDvName)
-              namespace: $(params.baseDvNamespace)
             spec:
-              storage:
+              pvc:
+                accessModes:
+                  - ReadWriteOnce
                 resources:
                   requests:
                     storage: 20Gi
+                volumeMode: Filesystem
               source:
                 blank: {}
         - name: waitForSuccess
@@ -80,30 +85,21 @@ spec:
             kind: VirtualMachine
             metadata:
               generateName: windows-bios-installer-
-              namespace: $(params.baseDvNamespace)
             spec:
-              instancetype:
-                kind: $(params.instanceTypeKind)
-                name: $(params.instanceTypeName)
-              preference:
-                kind: $(params.virtualMachinePreferenceKind)
-                name: $(params.preferenceName)
-              dataVolumeTemplates:
-                - apiVersion: cdi.kubevirt.io/v1beta1
-                  kind: DataVolume
-                  metadata:
-                    name: $(params.installCDRomName)
-                  spec:
-                    storage:
-                      resources:
-                        requests:
-                          storage: 7Gi
-                    source:
-                      http:
-                        url: $(params.winImageDownloadURL)
+              runStrategy: RerunOnFailure
               template:
+                metadata:
+                  labels:
+                    kubevirt.io/domain: windows-installer
                 spec:
                   domain:
+                    cpu:
+                      sockets: 1
+                      cores: 2
+                      threads: 1
+                    resources:
+                      requests:
+                        memory: 4Gi
                     devices:
                       disks:
                         - cdrom:
@@ -139,13 +135,12 @@ spec:
         kind: Task
         name: create-vm-from-manifest
       runAfter:
+        - 
         - create-vm-root-disk
     - name: wait-for-vmi-status
       params:
         - name: vmiName
           value: $(tasks.create-vm.results.name)
-        - name: vmiNamespace
-          value: $(tasks.create-vm.results.namespace)
         - name: successCondition
           value: status.phase == Succeeded
         - name: failureCondition
@@ -161,8 +156,6 @@ spec:
       params:
         - name: vmName
           value: $(tasks.create-vm.results.name)
-        - name: vmNamespace
-          value: $(tasks.create-vm.results.namespace)
         - name: delete
           value: true
       timeout: 10m
@@ -172,7 +165,4 @@ spec:
   results:
     - name: baseDvName
       description: Name of the created base DataVolume
-      value: $(tasks.create-vm-root-disk.results.name)
-    - name: baseDvNamespace
-      description: Namespace of the created base DataVolume
       value: $(tasks.create-vm-root-disk.results.name)
