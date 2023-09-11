@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: windows-sqlserver
+data:
+  unattend.xml: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <settings pass="specialize">
+        <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <InputLocale>0409:00000409</InputLocale>
+          <SystemLocale>en-US</SystemLocale>
+          <UILanguage>en-US</UILanguage>
+          <UserLocale>en-US</UserLocale>
+        </component>
+      </settings>
+      <!-- Remove or comment out this settings pass=oobeSystem section to avoid triggering sysprep -->
+      <!--<settings pass=oobeSystem>-->
+        <!--<component name=Microsoft-Windows-Deployment processorArchitecture=amd64 publicKeyToken=31bf3856ad364e35 language=neutral versionScope=nonSxS>-->
+          <!--<Reseal>-->
+            <!--<Mode>Audit</Mode>-->
+          <!--</Reseal>-->
+        <!--></component>--><!-- Commenting out entire section -->
+      <!--></settings>--><!-- Commenting out entire section -->
+      <settings pass=auditUser>
+        <component name=Microsoft-Windows-Deployment processorArchitecture=amd64 publicKeyToken=31bf3856ad364e35 language=neutral versionScope=nonSxS>
+          <RunSynchronous>
+            <RunSynchronousCommand wcm:action=add>
+              <Order>1</Order>
+              <Path>powershell.exe -ExecutionPolicy Bypass -NoProfile -File D:\sqlserver-install.ps1</Path>
+              <Description>Run sqlserver-install script</Description>
+            </RunSynchronousCommand>
+          </RunSynchronous>
+
+           <!-- Add a RunAsynchronous section to delay the restart after script execution -->
+           <!--<RunAsynchronous>-->
+             <!--<RestartComputer wcm:action=add>-->
+               <!--<DelayInSeconds>60</DelayInSeconds>--><!-- Adjust delay time as needed -->
+             <!--></RestartComputer>-->
+           <!--></RunAsynchronous>-->
+
+        </component>
+
+         <!-- Add a RunAsynchronous section outside of component to delay the restart after script execution -->
+         <!--<RunAsynchronous wcm:action=add>>-->
+           <!--<RestartComputer wcm:action=add>>-->
+             <!--<DelayInSeconds>60</DelayInSeconds>--><!-- Adjust delay time as needed -->
+           <!--></RestartComputer>>-->
+         <!--></RunAsynchronous>>-->
+
+      </settings>
+
+
+    </unattend>
+
+  sqlserver-install.ps1: |
+    #https://github.com/kubevirt/user-guide/pull/645
+    Set-NetIPInterface -InterfaceIndex $(Get-NetAdapter).ifIndex -NlMtuBytes 1300
+
+    # Download SQL server
+    $url = "https://go.microsoft.com/fwlink/?linkid=866658"
+    $setupPath = "C:\SQL2019-SSEI-Expr.exe"
+    Invoke-WebRequest -Uri $url -OutFile $setupPath
+
+    # Install SQL server
+    Start-Process $setupPath -Wait -ArgumentList "/ACTION=INSTALL /IACCEPTSQLSERVERLICENSETERMS /QUIET"
+

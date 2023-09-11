@@ -37,7 +37,7 @@ spec:
                   - ReadWriteOnce
                 resources:
                   requests:
-                    storage: 26Gi
+                    storage: 25Gi
                 volumeMode: Filesystem
               source: 
                 pvc:
@@ -79,6 +79,17 @@ spec:
                         - cdrom:
                             bus: sata
                           name: sysprep
+                      interfaces:
+                        - bridge: {}
+                          name: default
+                      inputs:
+                        - type: tablet
+                          bus: usb
+                          name: tablet
+                  terminationGracePeriodSeconds: 3600
+                  networks:
+                    - name: default
+                      pod: {}
                   volumes:
                   - name: sysprep
                     sysprep:
